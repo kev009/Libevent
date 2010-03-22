@@ -84,7 +84,12 @@ void evmap_io_active(struct event_base *base, evutil_socket_t fd, short events);
 int evmap_signal_add(struct event_base *base, int signum, struct event *ev);
 int evmap_signal_del(struct event_base *base, int signum, struct event *ev);
 void evmap_signal_active(struct event_base *base, evutil_socket_t signum, int ncalls);
-
 void *evmap_io_get_fdinfo(struct event_io_map *ctx, evutil_socket_t fd);
+
+void event_changelist_zero(struct event_changelist *changelist);
+int evmap_signal_delete_all(struct event_base *base);
+int evmap_io_delete_all(struct event_base *base);
+int evmap_signal_readd_all(struct event_base *base);
+int evmap_io_readd_all(struct event_base *base);
 
 #endif /* _EVMAP_H_ */

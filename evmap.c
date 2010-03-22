@@ -712,3 +712,122 @@ event_changelist_del(struct event_base *base, evutil_socket_t fd, short old, sho
 	return (0);
 }
 
+void
+event_changelist_zero(struct event_changelist *changelist)
+{
+	int i;
+	struct event_change *change;
+	for (i=0; i < changelist->n_changes; ++i) {
+		change = &changelist->changes[i];
+		change->old_events = 0;
+		change->read_change = change->write_change = 0;
+	}
+}
+
+int
+evmap_signal_delete_all(struct event_base *base)
+{
+	struct event_signal_map *ctx = &base->sigmap;
+	int i, n_del = 0;
+	for (i=0; i < ctx->nentries; ++i) {
+		struct evmap_signal *ent = ctx->entries[i];
+		struct event *ev, *next;
+		if (!ent || TAILQ_EMPTY(&ent->events))
+			continue;
+
+		for (ev = TAILQ_FIRST(&ent->events); ev; ev = next) {
+			next = TAILQ_NEXT(ev, ev_signal_next);
+			event_del(ev);
+			++n_del;
+		}
+	}
+	return n_del;
+}
+
+int
+evmap_io_delete_all(struct event_base *base)
+{
+	struct event_io_map *ctx = &base->io;
+	struct evmap_io *io;
+	struct event *ev, *next;
+	int n_del = 0;
+#ifdef EVMAP_USE_HT
+	HT_FOREACH(io, event_io_map, ctx) {
+#else
+	int i;
+	for (i = 0; i < ctx->nentries; ++i) {
+		io = ctx->entries[i];
+#endif
+		if (!io || TAILQ_EMPTY(&io->events))
+			continue;
+
+		for (ev = TAILQ_FIRST(&io->events); ev; ev = next) {
+			next = TAILQ_NEXT(ev, ev_signal_next);
+			event_del(ev);
+			++n_del;
+		}
+	}
+	return n_del;
+}
+
+int
+evmap_signal_readd_all(struct event_base *base)
+{
+	const struct eventop *evsel = base->evsigsel;
+	struct event_io_map *ctx = &base->sigmap;
+	int i;
+	int n_fail = 0;
+	void *extra;
+	puts("readd signals");
+	for (i=0; i < ctx->nentries; ++i) {
+		struct evmap_signal *ent = ctx->entries[i];
+		if (!ent || TAILQ_EMPTY(&ent->events))
+			continue;
+
+		extra = ((char*)ent) + sizeof(struct evmap_io);
+		if (evsel->add(base, i, 0, EV_SIGNAL, extra) == -1)
+			++n_fail;
+	}
+	return n_fail ? -1 : 0;
+}
+
+int
+evmap_io_readd_all(struct event_base *base)
+{
+	const struct eventop *evsel = base->evsel;
+	struct event_io_map *ctx = &base->io;
+	struct evmap_io *io;
+	struct event *ev;
+	short res;
+	void *extra;
+	int n_fail = 0;
+#ifdef EVMAP_USE_HT
+	HT_FOREACH(io, event_io_map, ctx) {
+#else
+	int i;
+	for (i = 0; i < ctx->nentries; ++i) {
+		io = ctx->entries[i];
+#endif
+		if (!io || TAILQ_EMPTY(&io->events))
+			continue;
+
+		ev = TAILQ_FIRST(&io->events);
+		res = 0;
+		if (io->nread)
+			res |= EV_READ;
+		if (io->nwrite)
+			res |= EV_WRITE;
+		if (ev->ev_events & EV_ET)
+			res |= EV_ET;
+
+		extra = ((char*)io) + sizeof(struct evmap_io);
+
+		printf("Readd fd %d (%d)\n", i, ev->ev_fd);
+		if (evsel->add(base, ev->ev_fd, 0, res, extra) == -1)
+			++n_fail;
+		printf("Readd fd %d ok\n", i);
+
+	}
+	return n_fail ? -1 : 0;
+}
+

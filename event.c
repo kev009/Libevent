@@ -666,6 +666,7 @@ event_base_free(struct event_base *base)
 	}
 
 	/* Delete all non-internal events. */
+#if 0
 	for (ev = TAILQ_FIRST(&base->eventqueue); ev; ) {
 		struct event *next = TAILQ_NEXT(ev, ev_next);
 		if (!(ev->ev_flags & EVLIST_INTERNAL)) {
@@ -674,6 +675,10 @@ event_base_free(struct event_base *base)
 		}
 		ev = next;
 	}
+#endif
+	evmap_io_delete_all(base);
+	evmap_signal_delete_all(base);
+
 	while ((ev = min_heap_top(&base->timeheap)) != NULL) {
 		event_del(ev);
 		++n_deleted;
@@ -742,7 +747,6 @@ event_reinit(struct event_base *base)
 {
 	const struct eventop *evsel;
 	int res = 0;
-	struct event *ev;
 
 	EVBASE_ACQUIRE_LOCK(base, th_base_lock);
 
@@ -774,10 +778,14 @@ event_reinit(struct event_base *base)
 		goto done;
 	}
 
+	event_changelist_zero(&base->changelist);
+	evmap_io_readd_all(base);
+	evmap_signal_readd_all(base);
+
+#if 0
 	event_changelist_freemem(&base->changelist); /* XXX */
 	evmap_io_clear(&base->io);
 	evmap_signal_clear(&base->sigmap);
-
 	TAILQ_FOREACH(ev, &base->eventqueue, ev_next) {
 		if (ev->ev_events & (EV_READ|EV_WRITE)) {
 			if (evmap_io_add(base, ev->ev_fd, ev) == -1)
@@ -787,6 +795,8 @@ event_reinit(struct event_base *base)
 				res = -1;
 		}
 	}
+#endif
+
 
 done:
 	EVBASE_RELEASE_LOCK(base, th_base_lock);
