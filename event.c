@@ -676,8 +676,8 @@ event_base_free(struct event_base *base)
 		ev = next;
 	}
 #endif
-	evmap_io_delete_all(base);
 	evmap_signal_delete_all(base);
+	evmap_io_delete_all(base);
 
 	while ((ev = min_heap_top(&base->timeheap)) != NULL) {
 		event_del(ev);
@@ -778,7 +778,7 @@ event_reinit(struct event_base *base)
 		goto done;
 	}
 
-	event_changelist_zero(&base->changelist);
+	event_changelist_remove_all(&base->changelist, base);
 	evmap_io_readd_all(base);
 	evmap_signal_readd_all(base);
 
@@ -2336,7 +2336,9 @@ event_queue_remove(struct event_base *base, struct event *ev, int queue)
 	ev->ev_flags &= ~queue;
 	switch (queue) {
 	case EVLIST_INSERTED:
+#if 0
 		TAILQ_REMOVE(&base->eventqueue, ev, ev_next);
+#endif
 		break;
 	case EVLIST_ACTIVE:
 		base->event_count_active--;
@@ -2410,7 +2412,9 @@ event_queue_insert(struct event_base *base, struct event *ev, int queue)
 	ev->ev_flags |= queue;
 	switch (queue) {
 	case EVLIST_INSERTED:
+#if 0
 		TAILQ_INSERT_TAIL(&base->eventqueue, ev, ev_next);
+#endif
 		break;
 	case EVLIST_ACTIVE:
 		base->event_count_active++;
@@ -2622,9 +2626,11 @@ evthread_make_base_notifiable(struct event_base *base)
 void
 event_base_dump_events(struct event_base *base, FILE *output)
 {
+#if 0
 	struct event *e;
 	int i;
 	fprintf(output, "Inserted events:\n");
+
 	TAILQ_FOREACH(e, &base->eventqueue, ev_next) {
 		fprintf(output, "  %p [fd %ld]%s%s%s%s%s\n",
 				(void*)e, (long)e->ev_fd,
@@ -2648,4 +2654,5 @@ event_base_dump_events(struct event_base *base, FILE *output)
 					(e->ev_res&EV_TIMEOUT)?" Timeout active":"");
 		}
 	}
+#endif
 }

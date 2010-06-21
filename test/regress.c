@@ -814,20 +814,28 @@ test_fork(void)
 	evsignal_set(&sig_ev, SIGCHLD, child_signal_cb, &got_sigchld);
 	evsignal_add(&sig_ev, NULL);
 
+	TT_BLATHER(("Pair is %d, %d", pair[0], pair[1]));
+
+	TT_BLATHER(("pre-fork"));
 	if ((pid = fork()) == 0) {
 		/* in the child */
+		TT_BLATHER(("About to reinit"));
 		if (event_reinit(current_base) == -1) {
 			fprintf(stdout, "FAILED (reinit)\n");
 			exit(1);
 		}
+		TT_BLATHER(("reinit done"));
 
 		evsignal_del(&sig_ev);
 
 		called = 0;
 
+		TT_BLATHER(("Pre-dispatch"));
 		event_dispatch();
+		TT_BLATHER(("dispatch done"));
 
 		event_base_free(current_base);
+		TT_BLATHER(("FREE done"));
 
 		/* we do not send an EOF; simple_read_cb requires an EOF
 		 * to set test_ok.  we just verify that the callback was
@@ -837,13 +845,16 @@ test_fork(void)
 
 	/* wait for the child to read the data */
 	sleep(1);
+	TT_BLATHER(("Post-sleep"));
 
 	write(pair[0], TEST1, strlen(TEST1)+1);
 
+	TT_BLATHER(("Post-write"));
 	if (waitpid(pid, &status, 0) == -1) {
 		fprintf(stdout, "FAILED (fork)\n");
 		exit(1);
 	}
+	TT_BLATHER(("Post-waitpid"));
 
 	if (WEXITSTATUS(status) != 76) {
 		fprintf(stdout, "FAILED (exit): %d\n", WEXITSTATUS(status));

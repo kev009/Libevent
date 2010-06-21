@@ -130,6 +130,7 @@ epoll_apply_changes(struct event_base *base)
 	int i;
 	int op, events;
 
+	event_debug(("Applying %d changes.", changelist->n_changes));
 	for (i = 0; i < changelist->n_changes; ++i) {
 		int precautionary_add = 0;
 		ch = &changelist->changes[i];
@@ -262,6 +263,7 @@ epoll_apply_changes(struct event_base *base)
 		}
 	}
 
+	event_debug(("Apply changelist done"));
 	return (0);
 }
 

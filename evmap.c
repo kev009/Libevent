@@ -50,6 +50,7 @@
 #include "evmap-internal.h"
 #include "mm-internal.h"
 #include "changelist-internal.h"
+#include "util-internal.h"
 
 /** An entry for an evmap_io list: notes all the events that want to read or
 	write on a given fd, and the number of each.
@@ -518,6 +519,8 @@ event_change_get_fdinfo(struct event_base *base,
 	return (void*)ptr;
 }
 
+#define DEBUG_CHANGELIST
+
 #ifdef DEBUG_CHANGELIST
 /** Make sure that the changelist is consistent with the evmap structures. */
 static void
@@ -654,6 +657,8 @@ event_changelist_add(struct event_base *base, evutil_socket_t fd, short old, sho
 	if (!change)
 		return -1;
 
+	event_debug(("%s: Adding change for %d.  %d changes.",
+		__func__, fd, changelist->n_changes));
 	/* An add replaces any previous delete, but doesn't result in a no-op,
 	 * since the delete might fail (because the fd had been closed since
 	 * the last add, for instance. */
@@ -715,13 +720,18 @@ event_changelist_del(struct event_base *base, evutil_socket_t fd, short old, sho
 void
 event_changelist_zero(struct event_changelist *changelist)
 {
+#if 0
 	int i;
-	struct event_change *change;
+#endif
+	changelist->n_changes = 0;
+#if 0
 	for (i=0; i < changelist->n_changes; ++i) {
+		struct event_change *change;
 		change = &changelist->changes[i];
 		change->old_events = 0;
 		change->read_change = change->write_change = 0;
 	}
+#endif
 }
 
 int
@@ -734,6 +744,7 @@ evmap_signal_delete_all(struct event_base *base)
 		struct event *ev, *next;
 		if (!ent || TAILQ_EMPTY(&ent->events))
 			continue;
+		printf("Deleting for signal %d", i);
 
 		for (ev = TAILQ_FIRST(&ent->events); ev; ev = next) {
 			next = TAILQ_NEXT(ev, ev_signal_next);
@@ -761,8 +772,10 @@ evmap_io_delete_all(struct event_base *base)
 		if (!io || TAILQ_EMPTY(&io->events))
 			continue;
 
+		printf("Deleting for fd %d", i);
 		for (ev = TAILQ_FIRST(&io->events); ev; ev = next) {
-			next = TAILQ_NEXT(ev, ev_signal_next);
+			next = TAILQ_NEXT(ev, ev_io_next);
+			EVUTIL_ASSERT(next != ev);
 			event_del(ev);
 			++n_del;
 		}
@@ -784,7 +797,7 @@ evmap_signal_readd_all(struct event_base *base)
 		if (!ent || TAILQ_EMPTY(&ent->events))
 			continue;
 
-		extra = ((char*)ent) + sizeof(struct evmap_io);
+		extra = ((char*)ent) + sizeof(struct evmap_signal);
 		if (evsel->add(base, i, 0, EV_SIGNAL, extra) == -1)
 			++n_fail;
 	}
@@ -812,6 +825,7 @@ evmap_io_readd_all(struct event_base *base)
 			continue;
 
 		ev = TAILQ_FIRST(&io->events);
+		EVUTIL_ASSERT(ev->ev_fd == i);
 		res = 0;
 		if (io->nread)
 			res |= EV_READ;
@@ -823,9 +837,12 @@ evmap_io_readd_all(struct event_base *base)
 		extra = ((char*)io) + sizeof(struct evmap_io);
 
 		printf("Readd fd %d (%d)\n", i, ev->ev_fd);
-		if (evsel->add(base, ev->ev_fd, 0, res, extra) == -1)
+		if (evsel->add(base, ev->ev_fd, 0, res, extra) == -1) {
 			++n_fail;
-		printf("Readd fd %d ok\n", i);
+			printf("Readd of fd %d failed\n", ev->ev_fd);
+		} else {
+			printf("Readd fd %d okay\n", ev->ev_fd);
+		}
 
 	}
 	return n_fail ? -1 : 0;
