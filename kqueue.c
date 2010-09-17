@@ -62,6 +62,8 @@
 #include "evthread-internal.h"
 #include "changelist-internal.h"
 
+#include "kqueue-internal.h"
+
 #define NEVENT		64
 
 struct kqop {
@@ -71,6 +73,7 @@ struct kqop {
 	struct kevent *events;
 	int events_size;
 	int kq;
+	int notify_event_added;
 	pid_t pid;
 };
 
@@ -412,3 +415,62 @@ kq_sig_del(struct event_base *base, int nsignal, short old, short events, void *
 
 	return (0);
 }
+
+#define NOTIFY_IDENT 42
+
+/* OSX 10.6 and FreeBSD 8.1 add support for EVFILT_USER, which we can use
+ * to wake up the event loop from another thread. */
+
+int
+_event_kq_add_notify_event(struct event_base *base)
+{
+	struct kqop *kqop = base->evbase;
+#if defined(EVFILT_USER) && defined(NOTE_TRIGGER)
+	struct kevent kev;
+	struct timespec timeout = { 0, 0 };
+#endif
+
+	if (kqop->notify_event_added)
+		return 0;
+
+#if defined(EVFILT_USER) && defined(NOTE_TRIGGER)
+	memset(&kev, 0, sizeof(kev));
+	kev.ident = NOTIFY_IDENT;
+	kev.filter = EVFILT_USER;
+	kev.flags = EV_ADD | EV_CLEAR;
+
+	if (kevent(kqop->kq, &kev, 1, NULL, 0, &timeout) == -1)
+		return -1;
+
+	return 0;
+#else
+	return -1;
+#endif
+}
+
+int
+_event_kq_notify_base(struct event_base *base)
+{
+	struct kqop *kqop = base->evbase;
+#if defined(EVFILT_USER) && defined(NOTE_TRIGGER)
+	struct kevent kev;
+	struct timespec timeout = { 0, 0 };
+#endif
+	if (! kqop->notify_event_added)
+		return -1;
+
+#if defined(EVFILT_USER) && defined(NOTE_TRIGGER)
+	memset(&kev, 0, sizeof(kev));
+	kev.ident = NOTIFY_IDENT;
+	kev.filter = EVFILT_USER;
+	kev.fflags = NOTE_TRIGGER;
+
+	if (kevent(kqop->kq, &kev, 1, NULL, 0, &timeout) == -1)
+		return -1;
+
+	return 0;
+#else
+	return -1;
+#endif
+}
+

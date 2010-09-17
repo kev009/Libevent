@@ -69,6 +69,10 @@
 #include "ht-internal.h"
 #include "util-internal.h"
 
+#ifdef _EVENT_HAVE_WORKING_KQUEUE
+#include "kqueue-internal.h"
+#endif
+
 #ifdef _EVENT_HAVE_EVENT_PORTS
 extern const struct eventop evportops;
 #endif
@@ -2666,6 +2670,13 @@ evthread_make_base_notifiable(struct event_base *base)
 	/* XXXX grab the lock here? */
 	if (!base)
 		return -1;
+
+#if defined(_EVENT_HAVE_WORKING_KQUEUE)
+	if (base->evsel == &kqops && _event_kq_add_notify_event(base) == 0) {
+		base->th_notify_fn = _event_kq_notify_base;
+		return 0;
+	}
+#endif
 
 	if (base->th_notify_fd[0] >= 0)
 		return 0;
