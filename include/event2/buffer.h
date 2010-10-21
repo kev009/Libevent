@@ -378,6 +378,21 @@ int evbuffer_add_reference(struct evbuffer *outbuf,
 int evbuffer_add_file(struct evbuffer *output, int fd, off_t offset,
     off_t length);
 
+struct evbuffer_file_segment;
+
+#define EVBUF_FS_CLOSE_ON_FREE    0x01
+#define EVBUF_FS_DISABLE_MMAP     0x02
+#define EVBUF_FS_DISABLE_SENDFILE 0x04
+#define EVBUF_FS_DISABLE_LOCKING  0x08
+
+struct evbuffer_file_segment *evbuffer_file_segment_new(
+	int fd, off_t offset, off_t length, unsigned flags);
+
+void evbuffer_file_segment_free(struct evbuffer_file_segment *seg);
+
+int evbuffer_add_file_segment(struct evbuffer *buf,
+    struct evbuffer_file_segment *seg, off_t offset, off_t length);
+
 /**
   Append a formatted string to the end of an evbuffer.
 

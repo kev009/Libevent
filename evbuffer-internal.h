@@ -182,6 +182,7 @@ struct evbuffer_chain {
 	/** a chain that should be freed, but can't be freed until it is
 	 * un-pinned. */
 #define EVBUFFER_DANGLING	0x0040
+#define EVBUFFER_FILESEGMENT	0x0080
 
 	/** Usually points to the read-write memory belonging to this
 	 * buffer allocated as part of the evbuffer_chain allocation.
@@ -192,19 +193,29 @@ struct evbuffer_chain {
 	unsigned char *buffer;
 };
 
-/* this is currently used by both mmap and sendfile */
-/* TODO(niels): something strange needs to happen for Windows here, I am not
- * sure what that is, but it needs to get looked into.
- */
-struct evbuffer_chain_fd {
-	int fd;	/**< the fd associated with this chain */
-};
-
 /** callback for a reference buffer; lets us know what to do with it when
  * we're done with it. */
 struct evbuffer_chain_reference {
 	evbuffer_ref_cleanup_cb cleanupfn;
 	void *extra;
+};
+
+struct evbuffer_chain_file_segment {
+	struct evbuffer_file_segment *segment;
+};
+
+struct evbuffer_file_segment {
+	void *lock;
+	int refcnt;
+	unsigned flags;
+
+	enum {EVBUF_FS_MMAP, EVBUF_FS_SENDFILE, EVBUF_FS_IO} type;
+
+	int fd;
+	void *mapping;
+	char *contents;
+	off_t offset;
+	off_t length;
 };
 
 #define EVBUFFER_CHAIN_SIZE sizeof(struct evbuffer_chain)

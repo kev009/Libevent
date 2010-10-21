@@ -583,10 +583,6 @@ test_evbuffer_reference(void *ptr)
 	evbuffer_free(src);
 }
 
-int _evbuffer_testing_use_sendfile(void);
-int _evbuffer_testing_use_mmap(void);
-int _evbuffer_testing_use_linear_file_access(void);
-
 static void
 test_evbuffer_add_file(void *ptr)
 {
@@ -597,24 +593,37 @@ test_evbuffer_add_file(void *ptr)
 	const char *compare;
 	evutil_socket_t fd = -1, pair[2] = {-1, -1};
 	int r=0, n_written=0;
+	int want_type = 0;
+	unsigned flags = 0;
+	int use_segment = 1;
+	struct evbuffer_file_segment *seg = NULL;
 
 	/* Add a test for a big file. XXXX */
 
 	tt_assert(impl);
-	if (!strcmp(impl, "sendfile")) {
-		if (!_evbuffer_testing_use_sendfile())
-			tt_skip();
-		TT_BLATHER(("Using sendfile-based implementaion"));
+	if (!strcmp(impl, "nosegment")) {
+		use_segment = 0;
+	} else if (!strcmp(impl, "sendfile")) {
+		flags = EVBUF_FS_DISABLE_MMAP;
+		want_type = EVBUF_FS_SENDFILE;
 	} else if (!strcmp(impl, "mmap")) {
-		if (!_evbuffer_testing_use_mmap())
-			tt_skip();
-		TT_BLATHER(("Using mmap-based implementaion"));
+		flags = EVBUF_FS_DISABLE_SENDFILE;
+		want_type = EVBUF_FS_MMAP;
 	} else if (!strcmp(impl, "linear")) {
-		if (!_evbuffer_testing_use_linear_file_access())
-			tt_skip();
-		TT_BLATHER(("Using read-based implementaion"));
+		flags = EVBUF_FS_DISABLE_SENDFILE|EVBUF_FS_DISABLE_MMAP;
+		want_type = EVBUF_FS_IO;
 	} else {
 		TT_DIE(("Didn't recognize the implementation"));
+	}
+
+	datalen = strlen(data);
+	fd = regress_make_tmpfile(data, datalen);
+
+	if (use_segment) {
+		seg = evbuffer_file_segment_new(fd, 0, datalen, flags);
+		tt_assert(seg);
+		if ((int)seg->type != (int)want_type)
+			tt_skip();
 	}
 
 #if defined(_EVENT_HAVE_SENDFILE) && defined(__sun__) && defined(__svr4__)
@@ -627,12 +636,13 @@ test_evbuffer_add_file(void *ptr)
 		tt_abort_msg("socketpair failed");
 #endif
 
-	datalen = strlen(data);
-	fd = regress_make_tmpfile(data, datalen);
-
 	tt_assert(fd != -1);
 
-	tt_assert(evbuffer_add_file(src, fd, 0, datalen) != -1);
+	if (use_segment) {
+		tt_assert(evbuffer_add_file_segment(src, seg, 0, datalen)!=-1);
+	} else {
+		tt_assert(evbuffer_add_file(src, fd, 0, datalen) != -1);
+	}
 
 	evbuffer_validate(src);
 
@@ -649,8 +659,9 @@ test_evbuffer_add_file(void *ptr)
 	evbuffer_validate(src);
 	compare = (char *)evbuffer_pullup(src, datalen);
 	tt_assert(compare != NULL);
-	if (memcmp(compare, data, datalen))
+	if (memcmp(compare, data, datalen)) {
 		tt_abort_msg("Data from add_file differs.");
+	}
 
 	evbuffer_validate(src);
  end:
@@ -659,6 +670,8 @@ test_evbuffer_add_file(void *ptr)
 	if (pair[1] >= 0)
 		evutil_closesocket(pair[1]);
 	evbuffer_free(src);
+	if (seg)
+		evbuffer_file_segment_free(seg);
 }
 
 #ifndef _EVENT_DISABLE_MM_REPLACEMENT
@@ -1561,6 +1574,8 @@ struct testcase_t evbuffer_testcases[] = {
 	  (void*)"mmap" },
 	{ "add_file_linear", test_evbuffer_add_file, TT_FORK, &nil_setup,
 	  (void*)"linear" },
+	{ "add_file_nosegment", test_evbuffer_add_file, TT_FORK, &nil_setup,
+	  (void*)"nosegment" },
 
 	END_OF_TESTCASES
 };
