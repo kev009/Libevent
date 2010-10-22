@@ -63,6 +63,10 @@
 #ifdef _EVENT_HAVE_SYS_SENDFILE_H
 #include <sys/sendfile.h>
 #endif
+#ifdef _EVENT_HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+
 
 #include <errno.h>
 #include <stdio.h>
@@ -2568,6 +2572,18 @@ evbuffer_file_segment_new(
 	seg->refcnt = 1;
 	seg->fd = fd;
 	seg->flags = flags;
+
+#ifdef WIN32
+#define lseek _lseek
+#define fstat _fstat
+#define stat _stat
+#endif
+	if (length == -1) {
+		struct stat st;
+		if (fstat(fd, &st) < 0)
+			goto err;
+		length = st.st_size;
+	}
 	seg->length = length;
 
 #if defined(USE_SENDFILE)
@@ -2608,9 +2624,6 @@ evbuffer_file_segment_new(
 	}
 #endif
 
-#ifdef WIN32
-#define lseek _lseek
-#endif
 	{
 		off_t start_pos = lseek(fd, 0, SEEK_CUR), pos;
 		off_t read_so_far = 0;
@@ -2703,6 +2716,12 @@ evbuffer_add_file_segment(struct evbuffer *buf,
 
 	if (buf->freeze_end)
 		goto err;
+
+	if (length < 0) {
+		if (offset > seg->length)
+			goto err;
+		length = seg->length - offset;
+	}
 
 	/* Can we actually add this? */
 	if (offset+length > seg->length)

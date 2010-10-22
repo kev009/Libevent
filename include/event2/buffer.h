@@ -373,7 +373,8 @@ int evbuffer_add_reference(struct evbuffer *outbuf,
   @param outbuf the output buffer
   @param fd the file descriptor
   @param off the offset from which to read data
-  @param length how much data to read
+  @param length how much data to read, or -1 to read as much as possible.
+    (-1 requires that 'fd' support fstat.)
   @return 0 if successful, or -1 if an error occurred
 */
 
@@ -436,7 +437,8 @@ struct evbuffer_file_segment;
 
    @param fd an open file to read from.
    @param offset an index within the file at which to start reading
-   @param length how much data to read
+   @param length how much data to read, or -1 to read as much as possible.
+      (-1 requires that 'fd' support fstat.)
    @param flags any number of the EVBUF_FS_* flags
    @return a new evbuffer_file_segment, or NULL on failure.
  **/
@@ -471,7 +473,7 @@ void evbuffer_file_segment_free(struct evbuffer_file_segment *seg);
    @param buf the evbuffer to append to
    @param seg the segment to add
    @param offset the offset within the segment to start from
-   @param length the amount of data to add
+   @param length the amount of data to add, or -1 to add it all.
    @return 0 on success, -1 on failure.
  */
 int evbuffer_add_file_segment(struct evbuffer *buf,

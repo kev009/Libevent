@@ -639,9 +639,9 @@ test_evbuffer_add_file(void *ptr)
 	tt_assert(fd != -1);
 
 	if (use_segment) {
-		tt_assert(evbuffer_add_file_segment(src, seg, 0, datalen)!=-1);
+		tt_assert(evbuffer_add_file_segment(src, seg, 0, -1)!=-1);
 	} else {
-		tt_assert(evbuffer_add_file(src, fd, 0, datalen) != -1);
+		tt_assert(evbuffer_add_file(src, fd, 0, -1) != -1);
 	}
 
 	evbuffer_validate(src);
