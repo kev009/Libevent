@@ -2720,7 +2720,6 @@ evbuffer_add_file_segment(struct evbuffer *buf,
 		chain->off = length;
 		chain->buffer_len = chain->misalign + length;
 	} else if (seg->type == EVBUF_FS_MMAP) {
-		chain->flags |= EVBUFFER_MMAP;
 		chain->buffer = (unsigned char*)(seg->contents + offset);
 		chain->buffer_len = length;
 		chain->off = length;
