@@ -334,65 +334,81 @@ epoll_apply_one_change(int epfd, struct event_change *ch)
 	epev.data.fd = fd;
 	epev.events = events;
 	if (epoll_ctl(epfd, op, fd, &epev) == -1) {
-		if (op == EPOLL_CTL_MOD && errno == ENOENT) {
-			/* If a MOD operation fails with ENOENT, the
-			 * fd was probably closed and re-opened.  We
-			 * should retry the operation as an ADD.
-			 */
-			if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) == -1) {
-				event_warn("Epoll MOD(%d) on %d retried as ADD; that failed too",
-				    (int)epev.events, fd);
-			} else {
-				event_debug(("Epoll MOD(%d) on %d retried as ADD; succeeded.",
-					(int)epev.events,
-					fd));
+		switch (op) {
+		case EPOLL_CTL_MOD:
+			if (errno == ENOENT) {
+				/* If a MOD operation fails with ENOENT, the
+				 * fd was probably closed and re-opened.  We
+				 * should retry the operation as an ADD.
+				 */
+				if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &epev) == -1) {
+					event_warn("Epoll MOD(%d) on %d retried as ADD; that failed too",
+					    (int)epev.events, fd);
+					return -1;
+				} else {
+					event_debug(("Epoll MOD(%d) on %d retried as ADD; succeeded.",
+						(int)epev.events,
+						fd));
+					return 0;
+				}
 			}
-		} else if (op == EPOLL_CTL_ADD && errno == EEXIST) {
-			/* If an ADD operation fails with EEXIST,
-			 * either the operation was redundant (as with a
-			 * precautionary add), or we ran into a fun
-			 * kernel bug where using dup*() to duplicate the
-			 * same file into the same fd gives you the same epitem
-			 * rather than a fresh one.  For the second case,
-			 * we must retry with MOD. */
-			if (epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &epev) == -1) {
-				event_warn("Epoll ADD(%d) on %d retried as MOD; that failed too",
-				    (int)epev.events, fd);
-			} else {
-				event_debug(("Epoll ADD(%d) on %d retried as MOD; succeeded.",
-					(int)epev.events,
-					fd));
+			break;
+		case EPOLL_CTL_ADD:
+			if (errno == EEXIST) {
+				/* If an ADD operation fails with EEXIST,
+				 * either the operation was redundant (as with a
+				 * precautionary add), or we ran into a fun
+				 * kernel bug where using dup*() to duplicate the
+				 * same file into the same fd gives you the same epitem
+				 * rather than a fresh one.  For the second case,
+				 * we must retry with MOD. */
+				if (epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &epev) == -1) {
+					event_warn("Epoll ADD(%d) on %d retried as MOD; that failed too",
+					    (int)epev.events, fd);
+					return -1;
+				} else {
+					event_debug(("Epoll ADD(%d) on %d retried as MOD; succeeded.",
+						(int)epev.events,
+						fd));
+					return 0;
+				}
 			}
-		} else if (op == EPOLL_CTL_DEL &&
-		    (errno == ENOENT || errno == EBADF || errno == EPERM)) {
-			/* If a delete fails with one of these errors,
-			 * that's fine too: we closed the fd before we
-			 * got around to calling epoll_dispatch. */
-			event_debug(("Epoll DEL(%d) on fd %d gave %s: DEL was unnecessary.",
-				(int)epev.events,
-				fd,
-				strerror(errno)));
-		} else {
-			event_warn("Epoll %s(%d) on fd %d failed.  Old events were %d; read change was %d (%s); write change was %d (%s)",
-			    epoll_op_to_string(op),
-			    (int)epev.events,
-			    fd,
-			    ch->old_events,
-			    ch->read_change,
-			    change_to_string(ch->read_change),
-			    ch->write_change,
-			    change_to_string(ch->write_change));
-			return -1;
+			break;
+		case EPOLL_CTL_DEL:
+			if (errno == ENOENT || errno == EBADF ||
+			    errno == EPERM) {
+				/* If a delete fails with one of these errors,
+				 * that's fine too: we closed the fd before we
+				 * got around to calling epoll_dispatch. */
+				event_debug(("Epoll DEL(%d) on fd %d gave %s: DEL was unnecessary.",
+					(int)epev.events,
+					fd,
+					strerror(errno)));
+				return 0;
+			}
+			break;
+		default:
+			break;
 		}
-	} else {
-		event_debug(("Epoll %s(%d) on fd %d okay. [old events were %d; read change was %d; write change was %d]",
-			epoll_op_to_string(op),
-			(int)epev.events,
-			ch->fd,
-			ch->old_events,
-			ch->read_change,
-			ch->write_change));
+		event_warn("Epoll %s(%d) on fd %d failed.  Old events were %d; read change was %d (%s); write change was %d (%s)",
+		    epoll_op_to_string(op),
+		    (int)epev.events,
+		    fd,
+		    ch->old_events,
+		    ch->read_change,
+		    change_to_string(ch->read_change),
+		    ch->write_change,
+		    change_to_string(ch->write_change));
+		return -1;
 	}
+
+	event_debug(("Epoll %s(%d) on fd %d okay. [old events were %d; read change was %d; write change was %d]",
+		epoll_op_to_string(op),
+		(int)epev.events,
+		ch->fd,
+		ch->old_events,
+		ch->read_change,
+		ch->write_change));
 
 	return 0;
 }
