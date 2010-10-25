@@ -190,8 +190,13 @@ evbuffer_chain_free(struct evbuffer_chain *chain)
 		    EVBUFFER_CHAIN_EXTRA(
 			    struct evbuffer_chain_file_segment,
 			    chain);
-		if (info->segment)
+		if (info->segment) {
+#ifdef WIN32
+			if (info->segment->type == EVBUF_FS_MMAP)
+				UnmapViewOfFile(chain->buffer);
+#endif
 			evbuffer_file_segment_free(info->segment);
+		}
 	}
 
 	mm_free(chain);
@@ -2594,7 +2599,6 @@ evbuffer_file_segment_new(
 	}
 #endif
 #if defined(_EVENT_HAVE_MMAP)
-	/* TODO: Implement an mmap-alike for windows. */
 	if (!(flags & EVBUF_FS_DISABLE_MMAP)) {
 		off_t offset_rounded = 0, offset_leftover = 0;
 		void *mapped;
@@ -2630,6 +2634,24 @@ evbuffer_file_segment_new(
 			seg->mapping = mapped;
 			seg->contents = (char*)mapped+offset_leftover;
 			seg->offset = 0;
+			seg->type = EVBUF_FS_MMAP;
+			goto done;
+		}
+	}
+#endif
+#ifdef WIN32
+	if (!(flags & EVBUF_FS_DISABLE_MMAP)) {
+		HANDLE h = _get_osfhandle(fd);
+		HANDLE m,v;
+		ev_uint64_t total_size = length+offset;
+		if (h == INVALID_HANDLE_VALUE)
+			return NULL;
+		m = CreateFileMapping(h, NULL, PAGE_READONLY,
+		    (total_size >> 32), total_size & 0xfffffffful,
+		    NULL);
+		if (m != INVALID_HANDLE_VALUE) { /* Does h leak? */
+			seg->mapping_handle = m;
+			seg->offset = offset;
 			seg->type = EVBUF_FS_MMAP;
 			goto done;
 		}
@@ -2698,8 +2720,12 @@ evbuffer_file_segment_free(struct evbuffer_file_segment *seg)
 	if (seg->type == EVBUF_FS_SENDFILE) {
 		;
 	} else if (seg->type == EVBUF_FS_MMAP) {
+#ifdef WIN32
+		CloseHandle(handle->mapping_handle);
+#elif defined (_EVENT_HAVE_MMAP)
 		if (munmap(seg->mapping, seg->length) == -1)
 			event_warn("%s: munmap failed", __func__);
+#endif
 	} else {
 		EVUTIL_ASSERT(seg->type == EVBUF_FS_IO);
 		mm_free(seg->contents);
@@ -2751,9 +2777,28 @@ evbuffer_add_file_segment(struct evbuffer *buf,
 		chain->off = length;
 		chain->buffer_len = chain->misalign + length;
 	} else if (seg->type == EVBUF_FS_MMAP) {
+#ifdef WIN32
+		uint64_t total_offset = seg->offset+offset;
+		/* XXXX HANDLE PAGE SIZE.  THIS WON'T WORK AS-IS IF
+		 * total_offset isn't round. */
+		LPVOID data = MapViewOfFile(
+			seg->mapping_handle,
+			FILE_MAP_READ,
+			total_offset>>32,
+			total_offset & 0xfffffffful,
+			length);
+		if (data == NULL) {
+			mm_free(chain);
+			goto err;
+		}
+		chain->buffer = (unsigned char*) data;
+		chain->buffer_len = length;
+		chain->off = length;
+#else
 		chain->buffer = (unsigned char*)(seg->contents + offset);
 		chain->buffer_len = length;
 		chain->off = length;
+#endif
 	} else {
 		EVUTIL_ASSERT(seg->type == EVBUF_FS_IO);
 		chain->buffer = (unsigned char*)(seg->contents + offset);

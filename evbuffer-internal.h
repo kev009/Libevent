@@ -204,6 +204,10 @@ struct evbuffer_chain_reference {
  * evbuffer_chain with the EVBUFFER_REFERENCE flag set.  */
 struct evbuffer_chain_file_segment {
 	struct evbuffer_file_segment *segment;
+#ifdef WIN32
+	/** If we're using CreateFileMapping, this is the handle to the view. */
+	HANDLE view_handle;
+#endif
 };
 
 /* Declared in event2/buffer.h; defined here. */
@@ -219,6 +223,10 @@ struct evbuffer_file_segment {
 	int fd;
 	/** If we're using mmap, this is the raw mapped memory. */
 	void *mapping;
+#ifdef WIN32
+	/** If we're using CreateFileMapping, this is the mapping */
+	HANDLE mapping_handle;
+#endif
 	/** If we're using mmap or IO, this is the content of the file
 	 * segment. */
 	char *contents;
