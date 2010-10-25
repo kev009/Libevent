@@ -2641,12 +2641,12 @@ evbuffer_file_segment_new(
 #endif
 #ifdef WIN32
 	if (!(flags & EVBUF_FS_DISABLE_MMAP)) {
-		HANDLE h = _get_osfhandle(fd);
-		HANDLE m,v;
+		long h = (long)_get_osfhandle(fd);
+		HANDLE m;
 		ev_uint64_t total_size = length+offset;
-		if (h == INVALID_HANDLE_VALUE)
+		if (h == (long)INVALID_HANDLE_VALUE)
 			return NULL;
-		m = CreateFileMapping(h, NULL, PAGE_READONLY,
+		m = CreateFileMapping((HANDLE)h, NULL, PAGE_READONLY,
 		    (total_size >> 32), total_size & 0xfffffffful,
 		    NULL);
 		if (m != INVALID_HANDLE_VALUE) { /* Does h leak? */
@@ -2721,7 +2721,7 @@ evbuffer_file_segment_free(struct evbuffer_file_segment *seg)
 		;
 	} else if (seg->type == EVBUF_FS_MMAP) {
 #ifdef WIN32
-		CloseHandle(handle->mapping_handle);
+		CloseHandle(seg->mapping_handle);
 #elif defined (_EVENT_HAVE_MMAP)
 		if (munmap(seg->mapping, seg->length) == -1)
 			event_warn("%s: munmap failed", __func__);
@@ -2778,21 +2778,29 @@ evbuffer_add_file_segment(struct evbuffer *buf,
 		chain->buffer_len = chain->misalign + length;
 	} else if (seg->type == EVBUF_FS_MMAP) {
 #ifdef WIN32
-		uint64_t total_offset = seg->offset+offset;
-		/* XXXX HANDLE PAGE SIZE.  THIS WON'T WORK AS-IS IF
-		 * total_offset isn't round. */
-		LPVOID data = MapViewOfFile(
+		ev_uint64_t total_offset = seg->offset+offset;
+		ev_uint64_t offset_rounded=0, offset_remaining=0;
+		LPVOID data;
+		if (total_offset) {
+			SYSTEM_INFO si;
+			memset(&si, 0, sizeof(si)); /* cargo cult */
+			GetSystemInfo(&si);
+			offset_remaining = total_offset % si.dwAllocationGranularity;
+			offset_rounded = total_offset - offset_remaining;
+		}
+		data = MapViewOfFile(
 			seg->mapping_handle,
 			FILE_MAP_READ,
-			total_offset>>32,
-			total_offset & 0xfffffffful,
+			offset_rounded >> 32,
+			offset_rounded & 0xfffffffful,
 			length);
 		if (data == NULL) {
 			mm_free(chain);
 			goto err;
 		}
 		chain->buffer = (unsigned char*) data;
-		chain->buffer_len = length;
+		chain->buffer_len = length+offset_remaining;
+		chain->misalign = offset_remaining;
 		chain->off = length;
 #else
 		chain->buffer = (unsigned char*)(seg->contents + offset);
