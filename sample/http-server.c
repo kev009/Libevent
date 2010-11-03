@@ -18,6 +18,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <dirent.h>
 #endif
 
 #include <event2/event.h>
@@ -59,7 +60,6 @@ send_document_cb(struct evhttp_request *req, void *arg)
 	if (!path) path = "";
 
 	decoded_path = evhttp_uridecode(path, 0, NULL);
-
 	if (strstr(decoded_path, "..")) /*XXX overzealous */
 		goto err;
 
@@ -68,18 +68,40 @@ send_document_cb(struct evhttp_request *req, void *arg)
 	snprintf(whole_path, len, "%s/%s", docroot, decoded_path);
 
 	fd = open(whole_path, O_RDONLY);
-	if (fd<0)
+	if (fd<0) {
 		goto err;
+	}
 
-	if (fstat(fd, &st)<0)
+	if (fstat(fd, &st)<0) {
 		goto err;
+	}
 
 	evb = evbuffer_new();
-	evbuffer_add_file(evb, fd, 0, st.st_size);
+	if (S_ISDIR(st.st_mode)) {
+		DIR *d;
+		struct dirent *ent;
+		d = fdopendir(fd);
+		if (!d)
+			goto err;
+		/*XXX set relative-paths right; make . and .. work. */
+		evbuffer_add_printf(evb, "<html><body><h1>%s</h1><ul>\n",
+		    decoded_path);/*html escape.XXXX*/
+		while ((ent = readdir(d))) {
+			evbuffer_add_printf(evb,"<li><a href=\"./%s\">%s</a>\n",
+			    ent->d_name, ent->d_name);
+		}
+		evbuffer_add_printf(evb, "</ul></body></html>\n");
+		closedir(d);
+	} else {
+
+		/* XXX not right for everybody */
+		evhttp_add_header(evhttp_request_get_output_headers(req),
+		    "Content-Type", "text/plain");
+		evbuffer_add_file(evb, fd, 0, st.st_size);
+	}
 
 	evhttp_send_reply(req, 200, "OK", evb);
 	evbuffer_free(evb);
-
 	return;
 err:
 	evhttp_send_error(req, 404, "Document was not found");
