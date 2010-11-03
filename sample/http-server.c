@@ -4,14 +4,20 @@
  */
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+#include <sys/types.h>
 
 #ifdef WIN32
 #include <winsock2.h>
 #include <windows.h>
 #else
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 #endif
 
 #include <event2/event.h>
@@ -22,10 +28,16 @@
 static void
 send_document_cb(struct evhttp_request *req, void *arg)
 {
-//	struct stat st;
-//	struct evbuffer *evb;
-//	const char *docroot = arg;
+	struct evbuffer *evb;
+	const char *docroot = arg;
 	const char *uri = evhttp_request_get_uri(req);
+	struct evhttp_uri *decoded = NULL;
+	const char *path;
+	char *decoded_path;
+	char *whole_path = NULL;
+	size_t len;
+	int fd = -1;
+	struct stat st;
 
 	printf("Got request for <%s>\n",  uri);
 
@@ -36,10 +48,49 @@ send_document_cb(struct evhttp_request *req, void *arg)
 	}
 
 	/* Decode the URI */
-	
+	decoded = evhttp_uri_parse(uri);
+	if (!decoded) {
+		printf("It's not a good URI. Sending ???\n");
+		evhttp_send_error(req, 404, "Not the right error");
+		return;
+	}
 
-//done:
+	path = evhttp_uri_get_path(decoded);
+	if (!path) path = "";
+
+	decoded_path = evhttp_uridecode(path, 0, NULL);
+
+	if (strstr(decoded_path, "..")) /*XXX overzealous */
+		goto err;
+
+	len = strlen(decoded_path)+strlen(docroot)+2;
+	whole_path = malloc(len);
+	snprintf(whole_path, len, "%s/%s", docroot, decoded_path);
+
+	fd = open(whole_path, O_RDONLY);
+	if (fd<0)
+		goto err;
+
+	if (fstat(fd, &st)<0)
+		goto err;
+
+	evb = evbuffer_new();
+	evbuffer_add_file(evb, fd, 0, st.st_size);
+
+	evhttp_send_reply(req, 200, "OK", evb);
+	evbuffer_free(evb);
+
+	return;
+err:
 	evhttp_send_error(req, 404, "Document was not found");
+	if (fd>=0)
+		close(fd);
+	if (decoded)
+		evhttp_uri_free(decoded);
+	if (decoded_path)
+		free(decoded_path);
+	if (whole_path)
+		free(whole_path);
 }
 
 static void
