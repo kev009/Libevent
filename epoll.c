@@ -75,6 +75,25 @@ const struct eventop epollops = {
 	EVENT_CHANGELIST_FDINFO_SIZE
 };
 
+
+static int epoll_nochangelist_add(struct event_base *base, evutil_socket_t fd,
+    short old, short events, void *p);
+static int epoll_nochangelist_del(struct event_base *base, evutil_socket_t fd,
+    short old, short events, void *p);
+
+static const struct eventop epollops_nochangelist = {
+	"epoll (no changelist)",
+	epoll_init,
+	epoll_nochangelist_add,
+	epoll_nochangelist_del,
+	epoll_dispatch,
+	epoll_dealloc,
+	1, /* need reinit */
+	EV_FEATURE_ET|EV_FEATURE_O1,
+	0
+};
+
+
 #define INITIAL_NEVENT 32
 #define MAX_NEVENT 4096
 
@@ -115,6 +134,10 @@ epoll_init(struct event_base *base)
 	}
 	epollop->nevents = INITIAL_NEVENT;
 
+	/* XXXX not the final interface! */
+	if (evutil_getenv("EVENT_EPOLL_NOCHANGELIST"))
+		base->evsel = &epollops_nochangelist;
+
 	evsig_init(base);
 
 	return (epollop);
@@ -145,19 +168,14 @@ epoll_op_to_string(int op)
 }
 
 static int
-epoll_apply_changes(struct event_base *base)
+epoll_apply_one_change(struct event_base *base,
+    struct epollop *epollop,
+    const struct event_change *ch)
 {
-	struct event_changelist *changelist = &base->changelist;
-	struct epollop *epollop = base->evbase;
-	struct event_change *ch;
 	struct epoll_event epev;
-	int i;
-	int op, events;
+	int op, events = 0;
 
-	for (i = 0; i < changelist->n_changes; ++i) {
-		ch = &changelist->changes[i];
-		events = 0;
-
+	if (1) {
 		/* The logic here is a little tricky.  If we had no events set
 		   on the fd before, we need to set op="ADD" and set
 		   events=the events we want to add.  If we had any events set
@@ -166,7 +184,6 @@ epoll_apply_changes(struct event_base *base)
 		   want to remain.  But if we want to delete the last event,
 		   we say op="DEL" and set events=the remaining events.  What
 		   fun!
-
 		*/
 
 		/* TODO: Turn this into a switch or a table lookup. */
@@ -237,7 +254,7 @@ epoll_apply_changes(struct event_base *base)
 		}
 
 		if (!events)
-			continue;
+			return 0;
 
 		memset(&epev, 0, sizeof(epev));
 		epev.data.fd = ch->fd;
@@ -251,6 +268,7 @@ epoll_apply_changes(struct event_base *base)
 				if (epoll_ctl(epollop->epfd, EPOLL_CTL_ADD, ch->fd, &epev) == -1) {
 					event_warn("Epoll MOD(%d) on %d retried as ADD; that failed too",
 					    (int)epev.events, ch->fd);
+					return -1;
 				} else {
 					event_debug(("Epoll MOD(%d) on %d retried as ADD; succeeded.",
 						(int)epev.events,
@@ -267,6 +285,7 @@ epoll_apply_changes(struct event_base *base)
 				if (epoll_ctl(epollop->epfd, EPOLL_CTL_MOD, ch->fd, &epev) == -1) {
 					event_warn("Epoll ADD(%d) on %d retried as MOD; that failed too",
 					    (int)epev.events, ch->fd);
+					return -1;
 				} else {
 					event_debug(("Epoll ADD(%d) on %d retried as MOD; succeeded.",
 						(int)epev.events,
@@ -292,6 +311,7 @@ epoll_apply_changes(struct event_base *base)
 				    change_to_string(ch->read_change),
 				    ch->write_change,
 				    change_to_string(ch->write_change));
+				return -1;
 			}
 		} else {
 			event_debug(("Epoll %s(%d) on fd %d okay. [old events were %d; read change was %d; write change was %d]",
@@ -303,8 +323,60 @@ epoll_apply_changes(struct event_base *base)
 				ch->write_change));
 		}
 	}
+	return 0;
+}
 
-	return (0);
+static int
+epoll_apply_changes(struct event_base *base)
+{
+	struct event_changelist *changelist = &base->changelist;
+	struct epollop *epollop = base->evbase;
+	struct event_change *ch;
+
+	int r = 0;
+	int i;
+
+	for (i = 0; i < changelist->n_changes; ++i) {
+		ch = &changelist->changes[i];
+		if (epoll_apply_one_change(base, epollop, ch) < 0)
+			r = -1;
+	}
+
+	return (r);
+}
+
+static int
+epoll_nochangelist_add(struct event_base *base, evutil_socket_t fd,
+    short old, short events, void *p)
+{
+	struct event_change ch;
+	ch.fd = fd;
+	ch.old_events = old;
+	ch.read_change = ch.write_change = 0;
+	if (events & EV_WRITE)
+		ch.write_change = EV_CHANGE_ADD |
+		    (events & EV_ET);
+	if (events & EV_READ)
+		ch.read_change = EV_CHANGE_ADD |
+		    (events & EV_ET);
+
+	return epoll_apply_one_change(base, base->evbase, &ch);
+}
+
+static int
+epoll_nochangelist_del(struct event_base *base, evutil_socket_t fd,
+    short old, short events, void *p)
+{
+	struct event_change ch;
+	ch.fd = fd;
+	ch.old_events = old;
+	ch.read_change = ch.write_change = 0;
+	if (events & EV_WRITE)
+		ch.write_change = EV_CHANGE_DEL;
+	if (events & EV_READ)
+		ch.read_change = EV_CHANGE_DEL;
+
+	return epoll_apply_one_change(base, base->evbase, &ch);
 }
 
 static int
