@@ -4053,7 +4053,7 @@ struct evdns_getaddrinfo_request {
 	 * then this field holds the answer from the first request... */
 	struct evutil_addrinfo *pending_result;
 	/* And this field holds the error code from the first request... */
-	int pending_error : 31;
+	ev_int16_t pending_error;
 	/* If this is set, the user canceled this request. */
 	unsigned user_canceled : 1;
 	/* And this event is a timeout that will tell us to cancel the second
