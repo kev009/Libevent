@@ -4052,13 +4052,14 @@ struct evdns_getaddrinfo_request {
 	/* If we have one request answered and one request still inflight,
 	 * then this field holds the answer from the first request... */
 	struct evutil_addrinfo *pending_result;
-	/* And this field holds the error code from the first request... */
-	ev_int16_t pending_error;
-	/* If this is set, the user canceled this request. */
-	unsigned user_canceled : 1;
 	/* And this event is a timeout that will tell us to cancel the second
 	 * request if it's taking a long time. */
 	struct event timeout;
+
+	/* And this field holds the error code from the first request... */
+	int pending_error;
+	/* If this is set, the user canceled this request. */
+	unsigned user_canceled : 1;
 };
 
 /* Convert an evdns errors to the equivalent getaddrinfo error. */
