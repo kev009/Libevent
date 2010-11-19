@@ -204,14 +204,7 @@ thread_basic(void *arg)
 		pid_t pid;
 		int status;
 		sigchld_event = evsignal_new(base, SIGCHLD, sigchld_cb, base);
-		/* This piggybacks on the th_notify_fd weirdly, and looks
-		 * inside libevent internals.  Not a good idea in non-testing
-		 * code! */
-		notification_event = event_new(base,
-		    base->th_notify_fd[0], EV_READ|EV_PERSIST, notify_fd_cb,
-		    NULL);
 		event_add(sigchld_event, NULL);
-		event_add(notification_event, NULL);
 
 		if ((pid = fork()) == 0) {
 			if (event_reinit(base) < 0) {
@@ -220,6 +213,14 @@ thread_basic(void *arg)
 			}
 	 		goto child;
 		}
+
+		/* This piggybacks on the th_notify_fd weirdly, and looks
+		 * inside libevent internals.  Not a good idea in non-testing
+		 * code! */
+		notification_event = event_new(base,
+		    base->th_notify_fd[0], EV_READ|EV_PERSIST, notify_fd_cb,
+		    NULL);
+		event_add(notification_event, NULL);
 
 		event_base_dispatch(base);
 
