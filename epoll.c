@@ -63,8 +63,8 @@ static void *epoll_init(struct event_base *);
 static int epoll_dispatch(struct event_base *, struct timeval *);
 static void epoll_dealloc(struct event_base *);
 
-const struct eventop epollops = {
-	"epoll",
+static const struct eventop epollops_changelist = {
+	"epoll (with changelist)",
 	epoll_init,
 	event_changelist_add,
 	event_changelist_del,
@@ -81,8 +81,8 @@ static int epoll_nochangelist_add(struct event_base *base, evutil_socket_t fd,
 static int epoll_nochangelist_del(struct event_base *base, evutil_socket_t fd,
     short old, short events, void *p);
 
-static const struct eventop epollops_nochangelist = {
-	"epoll (no changelist)",
+const struct eventop epollops = {
+	"epoll",
 	epoll_init,
 	epoll_nochangelist_add,
 	epoll_nochangelist_del,
@@ -92,7 +92,6 @@ static const struct eventop epollops_nochangelist = {
 	EV_FEATURE_ET|EV_FEATURE_O1,
 	0
 };
-
 
 #define INITIAL_NEVENT 32
 #define MAX_NEVENT 4096
@@ -134,9 +133,10 @@ epoll_init(struct event_base *base)
 	}
 	epollop->nevents = INITIAL_NEVENT;
 
-	/* XXXX not the final interface! */
-	if (evutil_getenv("EVENT_EPOLL_NOCHANGELIST"))
-		base->evsel = &epollops_nochangelist;
+	if ((base->flags & EVENT_BASE_FLAG_EPOLL_USE_CHANGELIST) != 0 ||
+	    ((base->flags & EVENT_BASE_FLAG_IGNORE_ENV) == 0 &&
+		evutil_getenv("EVENT_EPOLL_USE_CHANGELIST") != NULL))
+		base->evsel = &epollops_changelist;
 
 	evsig_init(base);
 
